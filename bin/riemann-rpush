@@ -1,0 +1,29 @@
+#!/usr/bin/env ruby
+
+# Riemann agent to collect Rpush metrics
+
+require 'redis'
+require 'riemann/tools'
+
+class Riemann::Tools::Rpush
+  include Riemann::Tools
+
+  opt :redis_url, "Redis URL", :default => ''
+
+  def initialize
+    @redis = ::Redis.new({url: opts[:redis_url]})
+  end
+
+  def tick
+    queue_size = @redis.scard('rpush:notifications:all')
+    msg = {
+      metric: queue_size,
+      service: 'rpush queue size',
+      state: 'ok'
+    }
+    puts msg.inspect
+    # report msg
+  end
+end
+
+Riemann::Tools::Rpush.run
