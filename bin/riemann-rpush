@@ -21,8 +21,7 @@ class Riemann::Tools::Rpush
       service: 'rpush queue size',
       state: 'ok'
     }
-    puts msg.inspect
-    # report msg
+    report msg
   end
 end
 
