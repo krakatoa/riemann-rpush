@@ -9,17 +9,30 @@ class Riemann::Tools::Rpush
   include Riemann::Tools
 
   opt :redis_url, "Redis URL", :default => ''
+  opt :queue_size_warning, "Queue size warning threshold",   :type => Integer, :default => 20
+  opt :queue_size_critical, "Queue size critical threshold", :type => Integer, :default => 100
 
   def initialize
     @redis = ::Redis.new({url: opts[:redis_url]})
+    @queue_size_warning = opts.fetch(:queue_size_warning)
+    @queue_size_critical = opts.fetch(:queue_size_critical)
   end
 
   def tick
     queue_size = @redis.scard('rpush:notifications:all')
+
+    state = if queue_size >= @queue_size_critical
+      'critical'
+    elsif queue_size >= @queue_size_warning
+      'warning'
+    else
+      'ok'
+    end
+
     msg = {
       metric: queue_size,
       service: 'rpush queue size',
-      state: 'ok'
+      state: state
     }
     report msg
   end
