@@ -19,19 +19,63 @@ class Riemann::Tools::Rpush
   end
 
   def tick
-    queue_size = @redis.scard('rpush:notifications:all')
+    keys = @redis.smembers('rpush:notifications:all')
 
-    state = if queue_size >= @queue_size_critical
+    types_count(keys).each_pair do |type, count|
+      deliver_type_count(type, count)
+    end
+
+    deliver_total(keys.size)
+  end
+
+  private
+  def types_count(keys)
+    keys.inject({}) |h, key|
+      type = get_notification_type(key)
+      if type
+        h[type] ||= 0
+        h[type] += 1
+      end
+      h
+    end
+  end
+
+  def get_notification_type(key)
+    type = @redis.hget("rpush:notifications:#{key}", 'type')
+    type.encode("UTF-8", invalid: :replace, replace: '').match(/Redis::(.*)::Notification/)[1].downcase
+  rescue
+    nil
+  end
+
+  def deliver_total(total)
+    state = if total >= @queue_size_critical
       'critical'
-    elsif queue_size >= @queue_size_warning
+    elsif total >= @queue_size_warning
       'warning'
     else
       'ok'
     end
 
     msg = {
-      metric: queue_size,
+      metric: total,
       service: 'rpush queue size',
+      state: state
+    }
+    report msg
+  end
+
+  def deliver_type_count(type, count)
+    state = if count >= @queue_size_critical
+      'critical'
+    elsif count >= @queue_size_warning
+      'warning'
+    else
+      'ok'
+    end
+
+    msg = {
+      metric: count,
+      service: "rpush #{type}-queue size",
       state: state
     }
     report msg
