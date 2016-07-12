@@ -11,6 +11,7 @@ class Riemann::Tools::Rpush
   opt :redis_url, "Redis URL", :default => ''
   opt :queue_size_warning, "Queue size warning threshold",   :type => Integer, :default => 20
   opt :queue_size_critical, "Queue size critical threshold", :type => Integer, :default => 100
+  opt :treat_sent_as, "Treat already sent notifications as", :type => String, :default => 'apns'
 
   def initialize
     @redis = ::Redis.new({url: opts[:redis_url]})
@@ -30,7 +31,11 @@ class Riemann::Tools::Rpush
 
   private
   def types_count(keys)
-    keys.inject({}) |h, key|
+    keys.inject({
+      'apns'  => 0,
+      'gcm'   => 0,
+      'wns'   => 0
+    }) do |h, key|
       type = get_notification_type(key)
       if type
         h[type] ||= 0
@@ -42,9 +47,9 @@ class Riemann::Tools::Rpush
 
   def get_notification_type(key)
     type = @redis.hget("rpush:notifications:#{key}", 'type')
-    type.encode("UTF-8", invalid: :replace, replace: '').match(/Redis::(.*)::Notification/)[1].downcase
+    type.encode("ASCII-8BIT", invalid: :replace, replace: '').match(/Redis::(.*)::Notification/)[1].downcase
   rescue
-    nil
+    opts.fetch(:treat_sent_as)
   end
 
   def deliver_total(total)
