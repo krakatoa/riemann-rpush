@@ -11,6 +11,7 @@ class Riemann::Tools::Rpush
   opt :redis_url, "Redis URL", :default => ''
   opt :queue_size_warning, "Queue size warning threshold",   :type => Integer, :default => 20
   opt :queue_size_critical, "Queue size critical threshold", :type => Integer, :default => 100
+  opt :treat_sent_as, "Treat already sent notifications as", :type => String, :default => 'apns'
 
   def initialize
     @redis = ::Redis.new({url: opts[:redis_url]})
@@ -19,19 +20,67 @@ class Riemann::Tools::Rpush
   end
 
   def tick
-    queue_size = @redis.scard('rpush:notifications:all')
+    keys = @redis.smembers('rpush:notifications:all')
 
-    state = if queue_size >= @queue_size_critical
+    types_count(keys).each_pair do |type, count|
+      deliver_type_count(type, count)
+    end
+
+    deliver_total(keys.size)
+  end
+
+  private
+  def types_count(keys)
+    keys.inject({
+      'apns'  => 0,
+      'gcm'   => 0,
+      'wns'   => 0
+    }) do |h, key|
+      type = get_notification_type(key)
+      if type
+        h[type] ||= 0
+        h[type] += 1
+      end
+      h
+    end
+  end
+
+  def get_notification_type(key)
+    type = @redis.hget("rpush:notifications:#{key}", 'type')
+    type.encode("ASCII-8BIT", invalid: :replace, replace: '').match(/Redis::(.*)::Notification/)[1].downcase
+  rescue
+    opts.fetch(:treat_sent_as)
+  end
+
+  def deliver_total(total)
+    state = if total >= @queue_size_critical
       'critical'
-    elsif queue_size >= @queue_size_warning
+    elsif total >= @queue_size_warning
       'warning'
     else
       'ok'
     end
 
     msg = {
-      metric: queue_size,
+      metric: total,
       service: 'rpush queue size',
+      state: state
+    }
+    report msg
+  end
+
+  def deliver_type_count(type, count)
+    state = if count >= @queue_size_critical
+      'critical'
+    elsif count >= @queue_size_warning
+      'warning'
+    else
+      'ok'
+    end
+
+    msg = {
+      metric: count,
+      service: "rpush #{type}-queue size",
       state: state
     }
     report msg
